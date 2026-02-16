@@ -17,13 +17,14 @@ fun main() {
 		var a = 0.0
 		var b = 0.0
 		var len = 0.0
-		var interLeft = listOf<MultiSector>()
-		var interRight = listOf<MultiSector>()
+		var interLeft = setOf<MultiSector>()
+		var interRight = setOf<MultiSector>()
 		fun isNotEmpty() = !range.isEmpty()
 		override fun toString() = range.toString()
+		fun len() = b - a
 	}
 
-	class SectorInters(val sector: MultiSector, val interLeft: List<MultiSector>, val interRight: List<MultiSector>)
+	class SectorInters(val sector: MultiSector, var interLeft: Set<MultiSector>, var interRight: Set<MultiSector>)
 
 	fun cutSectors(sectors: Array<Sector>): List<Sector> {
 		val result = mutableListOf<Sector>()
@@ -128,75 +129,116 @@ fun main() {
 		return kLen
 	}
 
-	fun nextByMaxLen(usedSet: Set<MultiSector>, unusedSectors: Collection<MultiSector>,
-					 allSubSectors: Array<Sector>, usedLen: Double): Pair<Double, Set<MultiSector>> {
-		val subSectorsCount = IntArray(allSubSectors.size)
-		for (s in usedSet) {
-			for (sNum in s.range) subSectorsCount[sNum]++
-		}
+	fun maxPlusSector(unusedSectors: Collection<MultiSector>, allSubSectors: Array<Sector>,
+					  subSectorsCount: IntArray): MultiSector {
 		for (s in unusedSectors) {
 			s.len = s.range.filter { subSectorsCount[it] == 0 }.sumOf { allSubSectors[it].len }
 		}
-		val s = unusedSectors.maxBy { it.len }
-		return usedLen + s.len to usedSet + s
+		return unusedSectors.maxBy { it.len }
 	}
 
-	fun unionLen(sectors: Set<MultiSector>, allSubSectors: Array<Sector>): Double {
-		val subSectorsCount = IntArray(allSubSectors.size)
+	fun minus(s: MultiSector, allSubSectors: Array<Sector>, subSectorsCount: IntArray): Double {
 		var len = 0.0
-		for (s in sectors) {
-			len += s.range.filter { subSectorsCount[it] == 0 }.sumOf { allSubSectors[it].len }
-			for (sNum in s.range) subSectorsCount[sNum]++
+		for (sNum in s.range) {
+			subSectorsCount[sNum]--
+			if (subSectorsCount[sNum] == 0) len += allSubSectors[sNum].len
 		}
 		return len
 	}
 
+	fun plus(s: MultiSector, allSubSectors: Array<Sector>, subSectorsCount: IntArray): Double {
+		var len = 0.0
+		for (sNum in s.range) {
+			if (subSectorsCount[sNum] == 0) len += allSubSectors[sNum].len
+			subSectorsCount[sNum]++
+		}
+		return len
+	}
+
+	fun length(s: MultiSector, allSubSectors: Array<Sector>, subSectorsCount: IntArray): Double {
+		return s.range.filter { subSectorsCount[it] == 0 }.sumOf { allSubSectors[it].len }
+	}
+
 	fun checkIntersectorsRecurs(v: Int, lastInter: MultiSector?, usedWithInter: List<SectorInters>,
-								usedSet: Set<MultiSector>, allSubSectors: Array<Sector>, i: Int): Pair<Double, Set<MultiSector>> {
-		var maxLen = 0.0
+								usedSet: MutableSet<MultiSector>, allSubSectors: Array<Sector>,
+								subSectorsCount: IntArray, currLen: Double,
+								limit: Double): Pair<Double, Set<MultiSector>> {
+		var maxLen = limit
 		var maxSectors = setOf<MultiSector>()
+		var useLen = currLen
 		val s = usedWithInter[v]
 		if (lastInter == null) {
-			val usedSet0 = usedSet - s.sector
+			usedSet.remove(s.sector)
+			useLen -= minus(s.sector, allSubSectors, subSectorsCount)
 			for (s1 in s.interLeft) {
-				val	usedSet1 = usedSet0 + s1
+				usedSet.add(s1)
+				useLen += plus(s1, allSubSectors, subSectorsCount)
 				for (s2 in s.interRight) {
-					val usedSet2 = usedSet1 + s2
-					val len0 = unionLen(usedSet2, allSubSectors)
-					if (len0 > maxLen + e) {
-						maxLen = len0
-						maxSectors = usedSet2
+					usedSet.add(s2)
+					useLen += plus(s2, allSubSectors, subSectorsCount)
+					if (useLen > maxLen + e) {
+						maxLen = useLen
+						maxSectors = usedSet.toSet()
 					}
 					if (v + 1 < usedWithInter.size) {
-						val (len, sec) = checkIntersectorsRecurs(v + 1, s2, usedWithInter, usedSet2, allSubSectors, i)
+						val (len, sec) = checkIntersectorsRecurs(v + 1, s2, usedWithInter, usedSet,
+							allSubSectors, subSectorsCount, useLen, maxLen)
 						if (len > maxLen + e) {
 							maxLen = len
 							maxSectors = sec
 						}
 					}
+					useLen -= minus(s2, allSubSectors, subSectorsCount)
+					usedSet.remove(s2)
 				}
+				useLen -= minus(s1, allSubSectors, subSectorsCount)
+				usedSet.remove(s1)
 			}
+			usedSet.add(s.sector)
+			useLen += plus(s.sector, allSubSectors, subSectorsCount)
 		} else {
 			if (lastInter in s.interLeft) {
-				val usedSet1 = usedSet - s.sector
-				for (s2 in s.interRight) {
-					val usedSet2 = usedSet1 + s2
-					val len0 = unionLen(usedSet2, allSubSectors)
-					if (len0 > maxLen + e) {
-						maxLen = len0
-						maxSectors = usedSet2
+				usedSet.remove(s.sector)
+				useLen -= minus(s.sector, allSubSectors, subSectorsCount)
+				val s2 = s.interRight.map { it to useLen + length(it, allSubSectors, subSectorsCount) }
+					.filter { it.second + e >= maxLen }.maxByOrNull { it.second }?.first
+				if (s2 != null) {
+					usedSet.add(s2)
+					useLen += plus(s2, allSubSectors, subSectorsCount)
+					if (useLen > maxLen + e) {
+						maxLen = useLen
+						maxSectors = usedSet.toSet()
 					}
 					if (v + 1 < usedWithInter.size) {
-						val (len, sec) = checkIntersectorsRecurs(v + 1, s2, usedWithInter, usedSet2, allSubSectors, i)
+						val (len, sec) = checkIntersectorsRecurs(v + 1, s2, usedWithInter, usedSet,
+							allSubSectors, subSectorsCount, useLen, maxLen)
 						if (len > maxLen + e) {
 							maxLen = len
 							maxSectors = sec
 						}
 					}
+					useLen -= minus(s2, allSubSectors, subSectorsCount)
+					usedSet.remove(s2)
 				}
+				useLen += plus(s.sector, allSubSectors, subSectorsCount)
+				usedSet.add(s.sector)
 			}
 		}
 		return maxLen to maxSectors
+	}
+
+	// Sorted used sectors with unused intersectors
+	fun filterIntersectors(usedSet: Set<MultiSector>): List<SectorInters> {
+		val usedWithInter = mutableListOf<SectorInters>()
+		val usedSorted = usedSet.sortedBy { it.a }
+		for (s in usedSorted) {
+			val interLeft = s.interLeft - usedSet
+			if (interLeft.isEmpty()) continue
+			val interRight = s.interRight - usedSet
+			if (interRight.isEmpty()) continue
+			usedWithInter.add(SectorInters(s, interLeft, interRight))
+		}
+		return usedWithInter
 	}
 
 	val (n, k) = readln().split(' ').map { it.toInt() }
@@ -235,47 +277,42 @@ fun main() {
 
 	for (s in goodSectors) {
 		val inter = s.range.flatMap { mSectorsBySubNum[it] }.toSet() - s
-		s.interLeft = inter.filter { it.a < s.a }.sortedBy { it.a }
-		s.interRight = inter.filter { it.b > s.b }.sortedBy { it.a }
+		s.interLeft = inter.filter { it.a < s.a }.toSet()
+		s.interRight = inter.filter { it.b > s.b }.toSet()
 	}
 
 	var kLen = 0.0
 	var unusedSectors = goodSectors
 	var usedSet = setOf<MultiSector>()
+	val sRemoved = mutableSetOf<MultiSector>()
 	for (i in 1 .. k) {
-		var maxLen = kLen
-		var maxSectors = setOf<MultiSector>()
+		val subSectorsCount = IntArray(allSubSectors.size)
+		for (s in usedSet) {
+			for (sNum in s.range) subSectorsCount[sNum]++
+		}
 
 		// 1 way: Add one new sector with maximum length increase
-		val (len1, sec1) = nextByMaxLen(usedSet, unusedSectors, allSubSectors, kLen)
-		if (len1 > maxLen + e) {
-			maxLen = len1
-			maxSectors = sec1
-		}
-
-		// Sorted used sectors with sorted unused intersectors (> 1)
-		val usedWithInter = mutableListOf<SectorInters>()
-		val usedSorted = usedSet.sortedBy { it.a }
-		for (s in usedSorted) {
-			val interLeft = s.interLeft - usedSet
-			if (interLeft.isEmpty()) continue
-			val interRight = s.interRight - usedSet
-			if (interRight.isEmpty()) continue
-			usedWithInter.add(SectorInters(s, interLeft, interRight))
-		}
+		val sMax = maxPlusSector(unusedSectors, allSubSectors, subSectorsCount)
+		var maxLen = kLen + sMax.len
+		var maxSectors = usedSet + sMax
 
 		// 2 way: Replace several sequential sectors with their sequential intersectors plus one
+		val usedWithInter = filterIntersectors(usedSet)
+		val usedMutable = usedSet.toMutableSet()
 		for (j in usedWithInter.indices) {
-			val (len2, sec2) = checkIntersectorsRecurs(j, null, usedWithInter, usedSet, allSubSectors, i)
+			if (usedWithInter[j].sector in sRemoved) continue
+			val (len2, sec2) = checkIntersectorsRecurs(j, null, usedWithInter, usedMutable,
+				allSubSectors, subSectorsCount, kLen, maxLen)
 			if (len2 > maxLen + e) {
 				maxLen = len2
 				maxSectors = sec2
 			}
 		}
+		sRemoved.addAll(usedSet - maxSectors)
 
-		kLen = maxLen
 		usedSet = maxSectors
 		unusedSectors = goodSectors - usedSet
+		kLen = maxLen
 	}
 
 	println(kLen / PI)
