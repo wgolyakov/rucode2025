@@ -33,7 +33,8 @@ fun main() {
 		var lens = mutableListOf<Double>()
 		var remove = mutableListOf<MultiSector>()
 		var add = mutableListOf<MultiSector>()
-		override fun toString() = (remove.firstOrNull()?.toString() ?: "") + "(${remove.size})"
+		fun size() = remove.size
+		override fun toString() = (remove.firstOrNull()?.toString() ?: "") + "(${size()})"
 
 		fun apply(subSectorsCount: IntArray) {
 			for (s in remove) {
@@ -156,20 +157,18 @@ fun main() {
 		for (sNum in s.range) subSectorsCount[sNum]++
 	}
 
-	fun continueChain(chain: Chain, prevChain0: Chain, chains: MutableList<Chain>, j0: Int, lastInter: MultiSector,
-					  usedWithInter: List<SectorInters>, allSubSectors: Array<Sector>, subSectorsCount: IntArray,
-					  currLen: Double, limit: Double) {
+	fun continueChain(chain: Chain, j0: Int, lastInter: MultiSector, usedWithInter: List<SectorInters>,
+					  allSubSectors: Array<Sector>, subSectorsCount: IntArray, currLen: Double, limit: Double) {
 		var dLen = chain.len
 		var j = j0
 		var s1 = lastInter
-		var prevChain = prevChain0
 		while (j < usedWithInter.size) {
 			val s = usedWithInter[j]
 			if (s1 !in s.interLeft) break
 			dLen -= minusLen(s.sector, allSubSectors, subSectorsCount)
 			val s2 = maxPlusSector(s.interRight, allSubSectors, subSectorsCount) ?: break
 			if (currLen + dLen + s2.len + e < limit) {
-				prevChain.limit = limit - currLen
+				chain.limit = limit - currLen
 				break
 			}
 			dLen += s2.len
@@ -178,11 +177,9 @@ fun main() {
 			chain.add.add(s2)
 			chain.len = dLen
 			chain.lens.add(chain.len)
-			prevChain = chain.clone()
 			j++
 			s1 = s2
 		}
-		if (prevChain !== prevChain0) chains.add(prevChain)
 	}
 
 	fun createChains(chainMap: MutableMap<MultiSector, MutableList<Chain>>, j: Int, usedWithInter: List<SectorInters>,
@@ -202,9 +199,11 @@ fun main() {
 				chain.add.add(s2)
 				chain.len = dLen
 				chain.lens.add(chain.len)
-				chains.add(chain)
-				continueChain(chain.clone(), chain, chains, j + 1, s2, usedWithInter,
+				val chain1 = chain.clone()
+				chains.add(chain1)
+				continueChain(chain, j + 1, s2, usedWithInter,
 					allSubSectors, subSectorsCount.clone(), currLen, limit)
+				if (chain.size() > chain1.size()) chains.add(chain) else chain1.limit = chain.limit
 				dLen -= minusLen(s2, allSubSectors, subSectorsCount)
 			}
 			dLen -= minusLen(s1, allSubSectors, subSectorsCount)
@@ -212,22 +211,36 @@ fun main() {
 		plus(s.sector, subSectorsCount)
 	}
 
-	fun updateChain(chains: MutableList<Chain>, j: Int, jBefore: Int, usedWithInter: List<SectorInters>,
-					allSubSectors: Array<Sector>, subSectorsCount: IntArray, currLen: Double, limit: Double) {
+	fun updateChains(chains: MutableList<Chain>, j: Int, jBefore: Int, usedWithInter: List<SectorInters>,
+					 allSubSectors: Array<Sector>, subSectorsCount: IntArray, currLen: Double, limit: Double) {
 		val goodSize = jBefore - j
-		val chain = chains.firstOrNull { it.remove.size > goodSize }
-		if (chain != null) {
-			chains.removeIf { it !== chain && it.remove.size > goodSize }
-			chain.remove = chain.remove.subList(0, goodSize).toMutableList()
-			chain.lens = chain.lens.subList(0, goodSize).toMutableList()
-			chain.len = chain.lens.last()
-			chain.limit = 0.0
-			chain.add = chain.add.subList(0, goodSize + 1).toMutableList()
-			val lastInter = chain.add.last()
-			val subSectorsCountClone = subSectorsCount.clone()
-			chain.apply(subSectorsCountClone)
-			continueChain(chain.clone(), chain, chains, jBefore, lastInter, usedWithInter,
-				allSubSectors, subSectorsCountClone, currLen, limit)
+		if (goodSize > 1) {
+			val affectedChains = chains.filter { it.size() > goodSize }
+			for (chain in affectedChains) {
+				chain.remove = chain.remove.subList(0, goodSize).toMutableList()
+				chain.lens = chain.lens.subList(0, goodSize).toMutableList()
+				chain.len = chain.lens.last()
+				chain.limit = 0.0
+				chain.add = chain.add.subList(0, goodSize + 1).toMutableList()
+				val lastInter = chain.add.last()
+				val subSectorsCountClone = subSectorsCount.clone()
+				chain.apply(subSectorsCountClone)
+				continueChain(
+					chain, jBefore, lastInter, usedWithInter,
+					allSubSectors, subSectorsCountClone, currLen, limit
+				)
+			}
+		} else {
+			chains.removeIf { it.size() > 1 }
+			for (chain in chains.toList()) {
+				val lastInter = chain.add.last()
+				val subSectorsCountClone = subSectorsCount.clone()
+				chain.apply(subSectorsCountClone)
+				val chain2 = chain.clone()
+				continueChain(chain2, j + chain.size(), lastInter,
+					usedWithInter, allSubSectors, subSectorsCountClone, currLen, limit)
+				if (chain2.size() > chain.size()) chains.add(chain2) else chain.limit = chain2.limit
+			}
 		}
 	}
 
@@ -239,8 +252,10 @@ fun main() {
 			val lastInter = chain.add.last()
 			val subSectorsCountClone = subSectorsCount.clone()
 			chain.apply(subSectorsCountClone)
-			continueChain(chain.clone(), chain, chains, j + chain.remove.size, lastInter,
+			val chain2 = if (chain.size() > 1) chain else chain.clone()
+			continueChain(chain2, j + chain.size(), lastInter,
 				usedWithInter, allSubSectors, subSectorsCountClone, currLen, limit)
+			if (chain2.size() > chain.size()) chains.add(chain2) else chain.limit = chain2.limit
 		}
 	}
 
@@ -325,7 +340,7 @@ fun main() {
 			for (j in 0 until jBefore) {
 				val s = usedWithInter[j].sector
 				val chains = chainMap[s] ?: continue
-				updateChain(chains, j, jBefore, usedWithInter, allSubSectors, subSectorsCount, kLen, maxLen)
+				updateChains(chains, j, jBefore, usedWithInter, allSubSectors, subSectorsCount, kLen, maxLen)
 			}
 			for (j in jBefore .. jAfter) {
 				createChains(chainMap, j, usedWithInter, allSubSectors, subSectorsCount, kLen, maxLen)
