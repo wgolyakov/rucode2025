@@ -15,17 +15,18 @@ fun main() {
 	}
 
 	class MultiSector {
+		var n = -1
 		var range = IntRange.EMPTY
 		var a = 0
 		var b = 0
 		var len = 0
-		var interLeft = setOf<MultiSector>()
-		var interRight = setOf<MultiSector>()
+		var interLeft = listOf<MultiSector>()
+		var interRight = listOf<MultiSector>()
 		fun isNotEmpty() = !range.isEmpty()
 		override fun toString() = range.toString()
 	}
 
-	class SectorInters(val sector: MultiSector, val interLeft: Set<MultiSector>, val interRight: Set<MultiSector>) {
+	class SectorInters(val sector: MultiSector, val interLeft: List<MultiSector>, val interRight: List<MultiSector>) {
 		override fun toString() = sector.toString()
 	}
 
@@ -120,7 +121,8 @@ fun main() {
 				}
 			}
 		}
-		val goodSectors = mSectors.filter { it.isNotEmpty() }
+		val goodSectors = mSectors.filter { it.isNotEmpty() }.sortedBy { it.a }
+		for ((i, s) in goodSectors.withIndex()) s.n = i
 		return goodSectors to allSubSectors.toTypedArray()
 	}
 
@@ -129,7 +131,7 @@ fun main() {
 		for (s in unusedSectors) {
 			s.len = s.range.filter { subSectorsCount[it] == 0 }.sumOf { allSubSectors[it].len }
 		}
-		return unusedSectors.maxBy { it.len }
+		return unusedSectors.maxWith(compareBy({ it.len }, { it.b }))
 	}
 
 	fun plusLen(s: MultiSector, allSubSectors: Array<Sector>, subSectorsCount: IntArray): Int {
@@ -179,12 +181,12 @@ fun main() {
 		}
 	}
 
-	fun createChains(chainMap: MutableMap<MultiSector, MutableList<Chain>>, j: Int, usedWithInter: List<SectorInters>,
+	fun createChains(chainArr: Array<MutableList<Chain>>, j: Int, usedWithInter: List<SectorInters>,
 					 allSubSectors: Array<Sector>, subSectorsCount: IntArray, currLen: Int, limit: Int) {
 		var dLen = 0
 		val s = usedWithInter[j]
-		val chains = mutableListOf<Chain>()
-		chainMap[s.sector] = chains
+		val chains = chainArr[s.sector.n]
+		chains.clear()
 		dLen -= minusLen(s.sector, allSubSectors, subSectorsCount)
 		for (s1 in s.interLeft) {
 			dLen += plusLen(s1, allSubSectors, subSectorsCount)
@@ -208,8 +210,10 @@ fun main() {
 		plus(s.sector, subSectorsCount)
 	}
 
-	fun updateChains(chains: MutableList<Chain>, j: Int, jBefore: Int, usedWithInter: List<SectorInters>,
+	fun updateChains(chainArr: Array<MutableList<Chain>>, j: Int, jBefore: Int, usedWithInter: List<SectorInters>,
 					 allSubSectors: Array<Sector>, subSectorsCount: IntArray, currLen: Int, limit: Int) {
+		val s = usedWithInter[j].sector
+		val chains = chainArr[s.n]
 		val goodSize = jBefore - j
 		if (goodSize > 1) {
 			val affectedChains = chains.filter { it.size() > goodSize }
@@ -222,10 +226,8 @@ fun main() {
 				val lastInter = chain.add.last()
 				val subSectorsCountClone = subSectorsCount.clone()
 				chain.apply(subSectorsCountClone)
-				continueChain(
-					chain, jBefore, lastInter, usedWithInter,
-					allSubSectors, subSectorsCountClone, currLen, limit
-				)
+				continueChain(chain, jBefore, lastInter, usedWithInter,
+					allSubSectors, subSectorsCountClone, currLen, limit)
 			}
 		} else {
 			chains.removeIf { it.size() > 1 }
@@ -241,8 +243,10 @@ fun main() {
 		}
 	}
 
-	fun enlargeChains(chains: MutableList<Chain>, j: Int, usedWithInter: List<SectorInters>,
+	fun enlargeChains(chainArr: Array<MutableList<Chain>>, j: Int, usedWithInter: List<SectorInters>,
 					  allSubSectors: Array<Sector>, subSectorsCount: IntArray, currLen: Int, limit: Int) {
+		val s = usedWithInter[j].sector
+		val chains = chainArr[s.n]
 		val limitedChains = chains.filter { it.limit + currLen > limit }
 		for (chain in limitedChains) {
 			chain.limit = 0
@@ -257,19 +261,19 @@ fun main() {
 	}
 
 	// Sorted used sectors with unused intersectors
-	fun filterIntersectors(usedSet: Set<MultiSector>,
-						   chainMap: MutableMap<MultiSector, MutableList<Chain>>): List<SectorInters> {
+	fun filterIntersectors(usedArr: BooleanArray, chainArr: Array<MutableList<Chain>>,
+						   goodSectors: List<MultiSector>): List<SectorInters> {
 		val usedWithInter = mutableListOf<SectorInters>()
-		val usedSorted = usedSet.sortedBy { it.a }
-		for (s in usedSorted) {
-			val interLeft = s.interLeft - usedSet
+		for (s in goodSectors) {
+			if (!usedArr[s.n]) continue
+			val interLeft = s.interLeft.filter { !usedArr[it.n] }
 			if (interLeft.isEmpty())  {
-				chainMap.remove(s)
+				chainArr[s.n].clear()
 				continue
 			}
-			val interRight = s.interRight - usedSet
+			val interRight = s.interRight.filter { !usedArr[it.n] }
 			if (interRight.isEmpty()) {
-				chainMap.remove(s)
+				chainArr[s.n].clear()
 				continue
 			}
 			usedWithInter.add(SectorInters(s, interLeft, interRight))
@@ -277,26 +281,25 @@ fun main() {
 		return usedWithInter
 	}
 
-	fun findMaxChain(usedSet: Set<MultiSector>, chainMap: MutableMap<MultiSector, MutableList<Chain>>, lastAdd: LastAdd,
-					 allSubSectors: Array<Sector>, subSectorsCount: IntArray, kLen: Int, maxLen: Int): Chain? {
-		val usedWithInter = filterIntersectors(usedSet, chainMap)
+	fun findMaxChain(usedArr: BooleanArray, chainArr: Array<MutableList<Chain>>, lastAdd: LastAdd,
+					 allSubSectors: Array<Sector>, subSectorsCount: IntArray, goodSectors: List<MultiSector>,
+					 kLen: Int, maxLen: Int): Chain? {
+		val usedWithInter = filterIntersectors(usedArr, chainArr, goodSectors)
 		if (usedWithInter.isEmpty()) return null
 		var jBefore = usedWithInter.indexOfLast { it.sector.a < lastAdd.first.a }
 		if (jBefore == -1) jBefore = 0
 		var jAfter = usedWithInter.indexOfFirst { it.sector.b > lastAdd.last.b }
 		if (jAfter == -1) jAfter = usedWithInter.lastIndex
 		for (j in 0 until jBefore) {
-			val s = usedWithInter[j].sector
-			val chains = chainMap[s] ?: continue
-			updateChains(chains, j, jBefore, usedWithInter, allSubSectors, subSectorsCount, kLen, maxLen)
+			updateChains(chainArr, j, jBefore, usedWithInter, allSubSectors, subSectorsCount, kLen, maxLen)
 		}
 		for (j in jBefore .. jAfter) {
-			createChains(chainMap, j, usedWithInter, allSubSectors, subSectorsCount, kLen, maxLen)
+			createChains(chainArr, j, usedWithInter, allSubSectors, subSectorsCount, kLen, maxLen)
 		}
-		for ((j, entry) in chainMap.entries.sortedBy { it.key.a }.withIndex()) {
-			enlargeChains(entry.value, j, usedWithInter, allSubSectors, subSectorsCount, kLen, maxLen)
+		for (j in usedWithInter.indices) {
+			enlargeChains(chainArr, j, usedWithInter, allSubSectors, subSectorsCount, kLen, maxLen)
 		}
-		return chainMap.maxBy { e -> e.value.maxOfOrNull { it.len } ?: 0 }.value.maxByOrNull { it.len }
+		return chainArr.maxBy { chains -> chains.maxOfOrNull { it.len } ?: 0 }.maxByOrNull { it.len }
 	}
 
 	val (n, k) = readln().split(' ').map { it.toInt() }
@@ -332,15 +335,15 @@ fun main() {
 				interRight.add(s2)
 			}
 		}
-		s1.interLeft = interLeft.toSet()
-		s1.interRight = interRight.toSet()
+		s1.interLeft = interLeft
+		s1.interRight = interRight
 	}
 
 	var kLen = 0
-	var unusedSectors = goodSectors
-	var usedSet = setOf<MultiSector>()
+	val unusedSectors = goodSectors.toMutableSet()
+	val usedArr = BooleanArray(n)
 	val subSectorsCount = IntArray(allSubSectors.size)
-	val chainMap = mutableMapOf<MultiSector, MutableList<Chain>>()
+	val chainArr = Array(n) { mutableListOf<Chain>() }
 	var lastAdd = LastAdd(goodSectors.first())
 	for (i in 1 .. k) {
 		// 1 way: Add one new sector with maximum length increase
@@ -348,21 +351,29 @@ fun main() {
 		val sMaxLen = sMax.len
 
 		// 2 way: Replace several sequential sectors with their sequential intersectors plus one
-		val maxChain = findMaxChain(usedSet, chainMap, lastAdd, allSubSectors, subSectorsCount, kLen, kLen + sMaxLen)
+		val maxChain = findMaxChain(usedArr, chainArr, lastAdd, allSubSectors, subSectorsCount,
+			goodSectors, kLen, kLen + sMaxLen)
 
 		if (maxChain != null && maxChain.len > sMaxLen) {
 			kLen += maxChain.len
-			usedSet = usedSet - maxChain.remove.toSet() + maxChain.add
+			for (s in maxChain.remove) {
+				usedArr[s.n] = false
+				chainArr[s.n].clear()
+			}
+			for (s in maxChain.add) {
+				usedArr[s.n] = true
+				unusedSectors.remove(s)
+			}
+			unusedSectors.addAll(maxChain.remove)
 			maxChain.apply(subSectorsCount)
 			lastAdd = LastAdd(maxChain.add)
-			for (s in maxChain.remove) chainMap.remove(s)
 		} else {
 			kLen += sMaxLen
-			usedSet = usedSet + sMax
+			usedArr[sMax.n] = true
+			unusedSectors.remove(sMax)
 			plus(sMax, subSectorsCount)
 			lastAdd = LastAdd(sMax)
 		}
-		unusedSectors = goodSectors - usedSet
 		if (kLen >= maxLimit) break
 	}
 
