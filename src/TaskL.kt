@@ -20,13 +20,14 @@ fun main() {
 		var a = 0
 		var b = 0
 		var len = 0
+		var lenRest = 0
 		var interLeft = listOf<MultiSector>()
 		var interRight = listOf<MultiSector>()
 		fun isNotEmpty() = !range.isEmpty()
 		override fun toString() = range.toString()
 	}
 
-	class SectorInters(val sector: MultiSector, val interLeft: List<MultiSector>, val interRight: List<MultiSector>) {
+	class SectorInters(val sector: MultiSector, val interLeft: Set<MultiSector>, val interRight: List<MultiSector>) {
 		override fun toString() = sector.toString()
 	}
 
@@ -129,9 +130,9 @@ fun main() {
 	fun maxPlusSector(unusedSectors: Collection<MultiSector>, allSubSectors: Array<Sector>,
 					  subSectorsCount: IntArray): MultiSector {
 		for (s in unusedSectors) {
-			s.len = s.range.filter { subSectorsCount[it] == 0 }.sumOf { allSubSectors[it].len }
+			s.lenRest = s.len - s.range.filter { subSectorsCount[it] != 0 }.sumOf { allSubSectors[it].len }
 		}
-		return unusedSectors.maxWith(compareBy({ it.len }, { it.b }))
+		return unusedSectors.maxWith(compareBy({ it.lenRest }, { it.b }))
 	}
 
 	fun plusLen(s: MultiSector, allSubSectors: Array<Sector>, subSectorsCount: IntArray): Int {
@@ -166,11 +167,11 @@ fun main() {
 			if (s1 !in s.interLeft) break
 			dLen -= minusLen(s.sector, allSubSectors, subSectorsCount)
 			val s2 = maxPlusSector(s.interRight, allSubSectors, subSectorsCount)
-			if (currLen + dLen + s2.len < limit) {
+			if (currLen + dLen + s2.lenRest < limit) {
 				chain.limit = limit - currLen
 				break
 			}
-			dLen += s2.len
+			dLen += s2.lenRest
 			plus(s2, subSectorsCount)
 			chain.remove.add(s.sector)
 			chain.add.add(s2)
@@ -266,7 +267,7 @@ fun main() {
 		val usedWithInter = mutableListOf<SectorInters>()
 		for (s in goodSectors) {
 			if (!usedArr[s.n]) continue
-			val interLeft = s.interLeft.filter { !usedArr[it.n] }
+			val interLeft = s.interLeft.filter { !usedArr[it.n] }.toSet()
 			if (interLeft.isEmpty())  {
 				chainArr[s.n].clear()
 				continue
@@ -348,7 +349,7 @@ fun main() {
 	for (i in 1 .. k) {
 		// 1 way: Add one new sector with maximum length increase
 		val sMax = maxPlusSector(unusedSectors, allSubSectors, subSectorsCount)
-		val sMaxLen = sMax.len
+		val sMaxLen = sMax.lenRest
 
 		// 2 way: Replace several sequential sectors with their sequential intersectors plus one
 		val maxChain = findMaxChain(usedArr, chainArr, lastAdd, allSubSectors, subSectorsCount,
