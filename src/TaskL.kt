@@ -7,22 +7,18 @@ fun main() {
 	fun round(x: Double) = (x * 10_000_000).roundToInt()
 	val pi = round(PI)
 
-	data class Sector(val a: Int, val b: Int, val n: Int = -1) {
+	data class Sector(val a: Int, val b: Int, var n: Int = -1) {
 		constructor(a: Double, b: Double) : this(round(a), round(b))
 		val len = b - a
-		operator fun contains(x: Int) = x in a .. b
-		operator fun contains(s: Sector) = a <= s.a && s.b <= b
 	}
 
-	class MultiSector {
-		var n = -1
+	class MultiSector(val n: Int) {
 		var range = IntRange.EMPTY
 		var a = 0
 		var b = 0
 		var len = 0
 		var interLeft = listOf<MultiSector>()
 		var interRight = listOf<MultiSector>()
-		fun isNotEmpty() = !range.isEmpty()
 		override fun toString() = range.toString()
 	}
 
@@ -74,7 +70,7 @@ fun main() {
 			}
 		}
 
-		public override fun clone(): FenwickTree{
+		public override fun clone(): FenwickTree {
 			val ft = FenwickTree(size)
 			tree.copyInto(ft.tree)
 			return ft
@@ -82,7 +78,7 @@ fun main() {
 	}
 
 	class LenCounter(val goodSectors: List<MultiSector>,
-					 private val allSubSectors: Array<Sector>,
+					 private val allSubSectors: List<Sector>,
 					 private val subSectorsCount: IntArray = IntArray(allSubSectors.size),
 					 private val fenwickTree: FenwickTree = FenwickTree(allSubSectors.size)
 	) : Cloneable {
@@ -150,54 +146,40 @@ fun main() {
 	}
 
 	fun removeContainedSectors(sectors: List<Sector>): List<Sector> {
-		val distinct = mutableListOf<Sector>()
-		for ((i, s) in sectors.withIndex()) {
-			var duplicate = false
-			for (s2 in sectors.subList(i + 1, sectors.size)) {
-				if (s.a == s2.a && s.b == s2.b) {
-					duplicate = true
-					break
-				}
-			}
-			if (!duplicate) distinct.add(s)
-		}
-		val result = mutableListOf<Sector>()
-		for (s in distinct) {
-			if (distinct.all { s === it || s !in it }) result.add(s)
-		}
-		return result
+		val sorted = sectors.sortedWith(compareBy({ it.a }, { -it.b }))
+		var bMax = -1
+		return sorted.filter { if (it.b <= bMax) false else { bMax = it.b; true } }
 	}
 
-	fun convert(sectors: List<Sector>): Pair<List<MultiSector>, Array<Sector>> {
+	fun convert(sectors: List<Sector>): Pair<List<MultiSector>, List<Sector>> {
 		val allSubSectors = mutableListOf<Sector>()
-		val mSectors = Array(sectors.size) { MultiSector() }
+		val mSectors = List(sectors.size) { MultiSector(it) }
 		val points = mutableSetOf<Int>()
 		for (s in sectors) {
 			points.add(s.a)
 			points.add(s.b)
 		}
+		for (i in sectors.indices) sectors[i].n = i
+		val currSectors = mutableListOf<Sector>()
+		var i = 0
 		for ((a, b) in points.sorted().windowed(2)) {
-			val c = (a + b) / 2
-			var n = -1
-			for ((i, sector) in sectors.withIndex()) {
-				if (c in sector) {
-					if (n == -1) {
-						n = allSubSectors.size
-						allSubSectors.add(Sector(a, b, n))
-					}
-					val m = mSectors[i]
-					m.range = if (m.range.isEmpty()) n .. n else m.range.first .. n
-					if (m.b == 0) m.a = a
-					m.b = b
+			if (currSectors.isNotEmpty() && currSectors.first().b == a) currSectors.removeFirst()
+			if (i < sectors.size && sectors[i].a == a) currSectors.add(sectors[i++])
+			if (currSectors.isNotEmpty()) {
+				val n = allSubSectors.size
+				allSubSectors.add(Sector(a, b, n))
+				for (sector in currSectors) {
+					val m = mSectors[sector.n]
+					m.range = if (m.range.isEmpty()) n..n else m.range.first..n
 				}
 			}
 		}
-		val goodSectors = mSectors.filter { it.isNotEmpty() }.sortedBy { it.a }
-		for ((i, s) in goodSectors.withIndex()) {
-			s.n = i
+		for (s in mSectors) {
+			s.a = allSubSectors[s.range.first].a
+			s.b = allSubSectors[s.range.last].b
 			s.len = s.b - s.a
 		}
-		return goodSectors to allSubSectors.toTypedArray()
+		return mSectors to allSubSectors
 	}
 
 	fun continueChain(chain: Chain, j0: Int, lastInter: MultiSector, usedWithInter: List<SectorInters>,
